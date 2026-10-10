@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MUST Bus Tracker</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{--bg:#f6f4ee;--ink:#14213d;--card:#fff;--line:#d9d4c7;--accent:#0a7d4f;--warn:#c8431a;--muted:#6b6f7a}
+@media (prefers-color-scheme:dark){:root{--bg:#10151f;--ink:#eef0f4;--card:#1a2130;--line:#2c3547;--accent:#3ddc97;--warn:#ff8a5c;--muted:#9aa3b5}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:"Trebuchet MS",system-ui,sans-serif}
+body{display:flex;flex-direction:column}
+header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:2px solid var(--ink)}
+header h1{font-size:18px;margin:0;font-weight:800;letter-spacing:.2px}
+.tabs{display:flex;gap:6px}
+.tabs button,.chip{border:1.5px solid var(--ink);background:transparent;color:var(--ink);border-radius:20px;padding:6px 12px;font:inherit;font-size:14px}
+.tabs button.on,.chip.on{background:var(--ink);color:var(--bg)}
+#map{flex:1 1 45%;min-height:220px;z-index:0}
+#panel{flex:0 0 auto;max-height:50%;overflow-y:auto;padding:12px 14px 18px;background:var(--card);border-top:2px solid var(--ink)}
+.routes{display:flex;gap:6px;overflow-x:auto;margin-bottom:10px}
+.big{display:flex;align-items:baseline;gap:10px}
+.big b{font-size:44px;line-height:1;color:var(--accent)}
+.big.full b{color:var(--warn)}
+.big span{font-size:15px;color:var(--muted)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
+.muted{color:var(--muted);font-size:13px}
+select,input{font:inherit;font-size:15px;padding:8px;border:1.5px solid var(--ink);border-radius:8px;background:var(--bg);color:var(--ink)}
+.act{border:0;border-radius:10px;padding:12px 16px;font:inherit;font-weight:700;font-size:16px;background:var(--accent);color:#fff}
+.act.stop{background:var(--warn)}
+.act.sm{background:var(--ink);color:var(--bg);font-size:28px;width:72px;padding:6px}
+.times{display:flex;gap:6px;flex-wrap:wrap}
+.times span{padding:4px 9px;border:1px solid var(--line);border-radius:6px;font-size:14px}
+.times span.next{background:var(--accent);color:#fff;border-color:var(--accent)}
+.hide{display:none}
+.busicon{background:var(--accent);color:#fff;border:2px solid #fff;border-radius:50%;text-align:center;line-height:26px;font-size:15px;width:30px!important;height:30px!important;box-shadow:0 0 0 3px rgba(10,125,79,.35)}
+</style>
+</head>
+<body>
+<header><h1>MUST Bus Tracker</h1>
+<div class="tabs"><button id="tS" class="on">Student</button><button id="tD">Driver</button></div></header>
+<div id="map"></div>
+<div id="panel">
+  <div class="routes" id="routes"></div>
+
+  <div id="student">
+    <div class="big" id="seatBig"><b id="seats">--</b><span id="seatLbl">seats left</span></div>
+    <div class="muted" id="status">Waiting for bus...</div>
+    <div class="row"><label for="myStop">My stop:</label><select id="myStop"></select></div>
+    <div id="eta" class="muted"></div>
+    <p class="muted" style="margin:10px 0 4px">Timetable</p>
+    <div class="times" id="times"></div>
+  </div>
+
+  <div id="driver" class="hide">
+    <div id="login" class="row"><input id="pin" type="password" inputmode="numeric" placeholder="Driver PIN"><button class="act" id="pinBtn">Unlock</button></div>
+    <div id="ctl" class="hide">
+      <div class="row"><button class="act" id="go">Start sharing location</button></div>
+      <div class="row"><button class="act sm" id="minus">&minus;</button>
+        <div class="big" id="dBig"><b id="occ">0</b><span id="occLbl">on board</span></div>
+        <button class="act sm" id="plus">+</button></div>
+      <div class="row"><button class="chip" id="sim">Simulate bus (demo mode)</button></div>
+      <div class="muted" id="dStat">Not sharing.</div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script>
+/* ====== EDIT THIS SECTION ====== */
+const DRIVER_PIN = "1234";
+const CAPACITY = 40;
+const AVG_KMH = 20; // used for ETA
+// Placeholder stops: replace names and lat/lng with your real route.
+const ROUTES = [
+  {id:"r1", name:"City - MUST", times:["07:00","07:45","08:30","13:30","15:00","16:30"],
+   stops:[{n:"Mirpur City Centre",lat:33.1478,lng:73.7513},{n:"Kotli Chowk",lat:33.1420,lng:73.7560},{n:"Sector F-1",lat:33.1340,lng:73.7600},{n:"MUST Campus",lat:33.1230,lng:73.7650}]},
+  {id:"r2", name:"Dadyal - MUST", times:["07:15","08:00","14:00","16:00"],
+   stops:[{n:"Dadyal Bus Stand",lat:33.1500,lng:73.7300},{n:"Chakswari Road",lat:33.1420,lng:73.7420},{n:"Mangla Link",lat:33.1330,lng:73.7550},{n:"MUST Campus",lat:33.1230,lng:73.7650}]}
+];
+const firebaseConfig = {
+  apiKey: "AIzaSyDLVXsoUY0Wcz6od2diU2Wv_-KmQ5f1yYg",
+  authDomain: "must-bus-tracker.firebaseapp.com",
+  databaseURL: "https://must-bus-tracker-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "must-bus-tracker",
+  storageBucket: "must-bus-tracker.firebasestorage.app",
+  messagingSenderId: "279683770007",
+  appId: "1:279683770007:web:79272260e95762acc66bd2"
+};
+/* ====== END EDIT SECTION ====== */
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const $ = id => document.getElementById(id);
+let route = ROUTES[0], bus = null, ref = null, busMarker = null, layer = null;
+let watchId = null, simTimer = null, occ = 0, sharing = false, unlocked = false;
+
+const map = L.map("map").setView([route.stops[0].lat, route.stops[0].lng], 13);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom:19, attribution:"&copy; OpenStreetMap"}).addTo(map);
+
+function km(a, b) {
+  const R = 6371, r = x => x * Math.PI / 180;
+  const dLat = r(b.lat - a.lat), dLng = r(b.lng - a.lng);
+  const h = Math.sin(dLat/2)**2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function pickRoute(r) {
+  if (sharing) return alert("Stop sharing before changing route.");
+  route = r;
+  document.querySelectorAll("#routes .chip").forEach(c => c.classList.toggle("on", c.dataset.id === r.id));
+  $("myStop").innerHTML = r.stops.map((s, i) => `<option value="${i}">${s.n}</option>`).join("");
+  $("myStop").value = r.stops.length - 1;
+  if (layer) layer.remove();
+  layer = L.layerGroup().addTo(map);
+  const pts = r.stops.map(s => [s.lat, s.lng]);
+  L.polyline(pts, {color:"#0a7d4f", weight:4, opacity:.7}).addTo(layer);
+  r.stops.forEach(s => L.circleMarker([s.lat, s.lng], {radius:7, color:"#14213d", weight:2, fillColor:"#fff", fillOpacity:1}).bindTooltip(s.n).addTo(layer));
+  map.fitBounds(pts, {padding:[30, 30]});
+  if (busMarker) { busMarker.remove(); busMarker = null; }
+  const now = new Date(), cur = now.getHours() * 60 + now.getMinutes();
+  let marked = false;
+  $("times").innerHTML = r.times.map(t => {
+    const [h, m] = t.split(":").map(Number);
+    const isNext = !marked && h * 60 + m >= cur;
+    if (isNext) marked = true;
+    return `<span class="${isNext ? "next" : ""}">${t}</span>`;
+  }).join("");
+  if (ref) ref.off();
+  ref = db.ref("buses/" + r.id);
+  ref.on("value", s => { bus = s.val(); render(); });
+}
+
+function render() {
+  const live = bus && bus.active && Date.now() - bus.ts < 60000;
+  const left = bus ? Math.max(0, CAPACITY - (bus.occ || 0)) : null;
+  $("seats").textContent = live ? left : "--";
+  $("seatBig").classList.toggle("full", live && left === 0);
+  $("seatLbl").textContent = live && left === 0 ? "bus is full" : "seats left";
+  if (!live) {
+    $("status").textContent = "Bus is not running right now.";
+    $("eta").textContent = "";
+    if (busMarker) { busMarker.remove(); busMarker = null; }
+    return;
+  }
+  const secs = Math.round((Date.now() - bus.ts) / 1000);
+  $("status").textContent = "Live. Updated " + secs + "s ago.";
+  const pos = [bus.lat, bus.lng];
+  if (!busMarker) busMarker = L.marker(pos, {icon:L.divIcon({className:"busicon", html:"&#128652;", iconSize:[30, 30]})}).addTo(map);
+  else busMarker.setLatLng(pos);
+  const stop = route.stops[+$("myStop").value];
+  const d = km(bus, stop);
+  const mins = Math.max(1, Math.round(d / AVG_KMH * 60));
+  $("eta").textContent = d < 0.15 ? "Bus is at " + stop.n + "." : "About " + mins + " min to " + stop.n + " (" + d.toFixed(1) + " km away).";
+}
+$("myStop").onchange = render;
+setInterval(render, 5000);
+
+function push(lat, lng) {
+  db.ref("buses/" + route.id).set({lat, lng, ts:Date.now(), occ, active:true});
+  $("dStat").textContent = "Sharing live. Last update " + new Date().toLocaleTimeString();
+}
+
+function startSharing() {
+  if (sharing) return;
+  if (!navigator.geolocation) return alert("This phone does not support GPS in the browser.");
+  sharing = true;
+  $("go").textContent = "Stop sharing";
+  $("go").classList.add("stop");
+  watchId = navigator.geolocation.watchPosition(
+    p => push(p.coords.latitude, p.coords.longitude),
+    e => { $("dStat").textContent = "GPS error: " + e.message + ". Allow location access and use HTTPS."; },
+    {enableHighAccuracy:true, maximumAge:2000, timeout:15000});
+}
+
+function stopSharing() {
+  sharing = false;
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+  if (simTimer) clearInterval(simTimer);
+  watchId = simTimer = null;
+  $("sim").classList.remove("on");
+  $("go").textContent = "Start sharing location";
+  $("go").classList.remove("stop");
+  $("dStat").textContent = "Not sharing.";
+  db.ref("buses/" + route.id).update({active:false});
+}
+
+$("go").onclick = () => sharing ? stopSharing() : startSharing();
+
+$("sim").onclick = () => {
+  if (sharing) return stopSharing();
+  sharing = true;
+  $("sim").classList.add("on");
+  $("go").textContent = "Stop sharing";
+  $("go").classList.add("stop");
+  let t = 0;
+  const n = route.stops.length - 1;
+  simTimer = setInterval(() => {
+    t = (t + 0.03) % n;
+    const i = Math.floor(t), f = t - i, a = route.stops[i], b = route.stops[i + 1];
+    push(a.lat + (b.lat - a.lat) * f, a.lng + (b.lng - a.lng) * f);
+  }, 2000);
+};
+
+function setOcc(v) {
+  occ = Math.max(0, Math.min(CAPACITY, v));
+  $("occ").textContent = occ;
+  if (sharing) db.ref("buses/" + route.id).update({occ});
+}
+$("plus").onclick = () => setOcc(occ + 1);
+$("minus").onclick = () => setOcc(occ - 1);
+
+$("pinBtn").onclick = () => {
+  if ($("pin").value === DRIVER_PIN) { unlocked = true; $("login").classList.add("hide"); $("ctl").classList.remove("hide"); }
+  else alert("Wrong PIN.");
+};
+
+function setMode(driver) {
+  $("student").classList.toggle("hide", driver);
+  $("driver").classList.toggle("hide", !driver);
+  $("tS").classList.toggle("on", !driver);
+  $("tD").classList.toggle("on", driver);
+}
+$("tS").onclick = () => setMode(false);
+$("tD").onclick = () => setMode(true);
+
+ROUTES.forEach(r => {
+  const b = document.createElement("button");
+  b.className = "chip"; b.dataset.id = r.id; b.textContent = r.name;
+  b.onclick = () => pickRoute(r);
+  $("routes").appendChild(b);
+});
+pickRoute(ROUTES[0]);
+</script>
+</body>
+</html>
