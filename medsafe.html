@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MedSafe: Reminder + Interaction Checker</title>
+<style>
+:root{--bg:#fbf8f3;--ink:#22303a;--green:#1b7f5c;--line:#e4ddd0;--card:#fff;--warn:#c2410c;--muted:#6a7580;--soft:#e8f4ee}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Trebuchet MS","Segoe UI",sans-serif;line-height:1.4;padding-bottom:84px}
+header{padding:16px 16px 10px;display:flex;justify-content:space-between;align-items:baseline}
+header h1{margin:0;font-size:22px}
+header span{font-size:13px;color:var(--muted)}
+main{max-width:600px;margin:0 auto;padding:0 14px}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--ink);padding:8px 8px calc(8px + env(safe-area-inset-bottom,0px))}
+nav button{flex:1;background:none;border:0;color:#cdd6dc;font:inherit;font-size:15px;padding:10px 4px;border-radius:10px}
+nav button.on{background:var(--green);color:#fff;font-weight:700}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px}
+.banner{border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:14px}
+.low{background:#fff0e6;border-left:5px solid var(--warn)}
+.hint{background:var(--soft);border-left:5px solid var(--green)}
+.ring{background:var(--green);color:#fff;display:flex;justify-content:space-between;align-items:center}
+.ring b{font-size:26px}
+.dose{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
+.dose .t{min-width:72px;font-weight:700;font-size:15px}
+.dose .n{flex:1}.dose small{color:var(--muted)}
+.dose.done{opacity:.55}.dose.done .n b{text-decoration:line-through}
+.dose.late{border-color:var(--warn);background:#fff7f1}
+button.b{border:0;background:var(--green);color:#fff;font:inherit;font-weight:700;padding:10px 14px;border-radius:10px}
+button.b.o{background:none;color:var(--ink);border:1.5px solid var(--ink);font-weight:600}
+button.b.r{background:var(--warn)}
+button.b.s{padding:7px 11px;font-size:14px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+label{display:block;font-weight:700;font-size:14px;margin:12px 0 4px}
+input,select{width:100%;font:inherit;font-size:16px;padding:10px;border:1.5px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+.tl{display:flex;gap:8px;margin-bottom:6px}
+.bar{height:8px;background:var(--line);border-radius:6px;overflow:hidden;margin:6px 0}
+.bar i{display:block;height:100%;background:var(--green)}
+.bar.lowbar i{background:var(--warn)}
+h2{font-size:17px;margin:14px 0 8px}
+.empty{text-align:center;color:var(--muted);padding:30px 10px}
+#alert{position:sticky;top:0;z-index:5}
+.pop{background:var(--ink);color:#fff;border-radius:10px;padding:10px 12px;margin:0 0 8px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.pop button{background:#fff;border:0;border-radius:8px;padding:6px 10px;font:inherit}
+#sg button{display:block;width:100%;text-align:left;font:inherit;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:4px;color:var(--ink)}
+.scn{display:flex;gap:10px;align-items:flex-start;font-weight:400;border:1px solid var(--line);border-radius:10px;padding:10px;margin:8px 0}
+.scn input{width:22px;height:22px;margin-top:2px}
+.muted{font-size:13px;color:var(--muted)}
+.vh{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;pointer-events:none}
+label.fl{display:inline-block;margin:0;border:0;background:var(--green);color:#fff;font:inherit;font-weight:700;padding:10px 14px;border-radius:10px;font-size:16px}
+label.fl.o{background:none;color:var(--ink);border:1.5px solid var(--ink);font-weight:600}
+.tag{background:var(--warn);color:#fff;font-size:12px;font-weight:700;padding:2px 8px;border-radius:10px}
+.res{border-left:6px solid var(--warn)}.res.Moderate{border-left-color:#9a5b00}.res.Moderate .tag{background:#9a5b00}.res p{margin:4px 0;font-size:14.5px}
+</style>
+</head>
+<body>
+<header><h1>MedSafe</h1><span id="date"></span></header>
+<input type="file" id="fileCam" accept="image/*" capture="environment" class="vh"><input type="file" id="fileGal" accept="image/*" class="vh">
+<main><div id="alert"></div><div id="v"></div></main>
+<nav><button data-v="today">Today</button><button data-v="meds">Medicines</button><button data-v="add">Add</button><button data-v="safe">Safety</button></nav>
+<script>
+const DB=`Paracetamol (Acetaminophen)|Panadol,Calpol,Disprol|500 mg,650 mg,1 g
+Ibuprofen|Brufen|200 mg,400 mg,600 mg
+Diclofenac|Voltaren,Olfen,Cataflam|50 mg,75 mg,100 mg
+Naproxen|Naprosyn,Synflex|250 mg,500 mg
+Mefenamic acid|Ponstan|250 mg,500 mg
+Aspirin (Acetylsalicylic acid)|Disprin,Loprin|75 mg,100 mg,300 mg,325 mg
+Metformin|Glucophage|500 mg,850 mg,1000 mg
+Glibenclamide|Daonil,Euglucon|2.5 mg,5 mg
+Gliclazide|Diamicron|30 mg,80 mg
+Glimepiride|Amaryl|1 mg,2 mg,3 mg,4 mg
+Sitagliptin|Januvia|50 mg,100 mg
+Vildagliptin|Galvus|50 mg
+Insulin|Mixtard,Lantus,Humulin,Novorapid,Levemir,Tresiba|100 IU/mL
+Amlodipine|Norvasc|2.5 mg,5 mg,10 mg
+Atenolol|Tenormin|25 mg,50 mg,100 mg
+Bisoprolol|Concor|2.5 mg,5 mg,10 mg
+Propranolol|Inderal|10 mg,40 mg
+Enalapril|Renitec|5 mg,10 mg,20 mg
+Lisinopril|Zestril|5 mg,10 mg,20 mg
+Losartan|Cozaar|25 mg,50 mg,100 mg
+Valsartan|Diovan|80 mg,160 mg
+Telmisartan|Micardis|40 mg,80 mg
+Furosemide|Lasix|20 mg,40 mg
+Spironolactone|Aldactone|25 mg,50 mg,100 mg
+Hydrochlorothiazide||12.5 mg,25 mg
+Atorvastatin|Lipitor|10 mg,20 mg,40 mg,80 mg
+Rosuvastatin|Crestor,Rovista|5 mg,10 mg,20 mg,40 mg
+Simvastatin|Zocor|10 mg,20 mg,40 mg
+Clopidogrel|Plavix|75 mg
+Amoxicillin|Amoxil|250 mg,500 mg
+Co-amoxiclav (Amoxicillin + Clavulanic acid)|Augmentin|375 mg,625 mg,1 g
+Azithromycin|Zithromax|250 mg,500 mg
+Clarithromycin|Klaricid|250 mg,500 mg
+Cefixime|Suprax|200 mg,400 mg
+Cefuroxime|Zinnat|250 mg,500 mg
+Cephalexin|Keflex|250 mg,500 mg
+Ciprofloxacin|Ciproxin|250 mg,500 mg
+Levofloxacin|Tavanic|250 mg,500 mg,750 mg
+Metronidazole|Flagyl|200 mg,400 mg
+Co-trimoxazole (Sulfamethoxazole + Trimethoprim)|Septran|480 mg,960 mg
+Doxycycline|Vibramycin|100 mg
+Fluconazole|Diflucan|50 mg,150 mg
+Acyclovir|Zovirax|200 mg,400 mg,800 mg
+Albendazole|Zentel|400 mg
+Omeprazole|Risek|20 mg,40 mg
+Esomeprazole|Nexum|20 mg,40 mg
+Pantoprazole|Controloc|20 mg,40 mg
+Domperidone|Motilium|10 mg
+Ondansetron|Zofran|4 mg,8 mg
+Metoclopramide|Maxolon|10 mg
+Loperamide|Imodium|2 mg
+Cetirizine|Zyrtec|10 mg
+Levocetirizine|Xyzal|5 mg
+Loratadine|Clarityn|10 mg
+Chlorpheniramine|Piriton|4 mg
+Diphenhydramine|Benadryl|25 mg
+Fexofenadine|Telfast|120 mg,180 mg
+Hydroxyzine|Atarax|10 mg,25 mg
+Montelukast|Singulair|4 mg,5 mg,10 mg
+Salbutamol|Ventolin|2 mg,4 mg
+Prednisolone|Deltacortril|5 mg,10 mg,20 mg
+Dexamethasone|Decadron|0.5 mg,4 mg
+Levothyroxine|Euthyrox|25 mcg,50 mcg,75 mcg,100 mcg
+Diazepam|Valium|2 mg,5 mg,10 mg
+Alprazolam|Xanax|0.25 mg,0.5 mg,1 mg
+Amitriptyline|Tryptanol|10 mg,25 mg
+Gabapentin|Neurontin|100 mg,300 mg,400 mg
+Pregabalin|Lyrica|75 mg,150 mg
+Sertraline|Zoloft|50 mg,100 mg
+Escitalopram|Cipralex|10 mg
+Tramadol|Tramal|50 mg,100 mg
+Sildenafil|Viagra|25 mg,50 mg,100 mg
+Isosorbide dinitrate|Isordil|5 mg,10 mg
+Digoxin|Lanoxin|0.25 mg
+Warfarin|Warf|1 mg,3 mg,5 mg
+Allopurinol|Zyloric|100 mg,300 mg
+Methotrexate||2.5 mg
+Potassium chloride|Slow-K|600 mg
+Ferrous sulfate (Iron)||200 mg
+Folic acid||5 mg
+Calcium carbonate||500 mg
+Cholecalciferol (Vitamin D3)||1000 IU,50000 IU
+Antacid (Aluminium + Magnesium hydroxide)|Gaviscon,Mucaine|`.split("\n").map(l=>{const[g,b,s]=l.split("|");return{g,b:(b||"").split(",").filter(Boolean),s:(s||"").split(",").filter(Boolean)}});
+const KEYS=[], kw=x=>x.toLowerCase().split(/[ (]/)[0].replace(/[^a-z-]/g,"");
+DB.forEach(e=>{KEYS.push({k:kw(e.g),e,br:""});e.b.forEach(b=>KEYS.push({k:kw(b),e,br:b}))});
+const dn=m=>m.name+(m.strength?" "+m.strength:"");
+function lev(a,b){const d=[];for(let i=0;i<=a.length;i++)d[i]=[i];for(let j=1;j<=b.length;j++)d[0][j]=j;
+  for(let i=1;i<=a.length;i++)for(let j=1;j<=b.length;j++)d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1));return d[a.length][b.length]}
+function find(line){
+  const out=[],seen=new Set();
+  (line.toLowerCase().match(/[a-z][a-z-]{3,}/g)||[]).forEach(w=>{
+    const K=KEYS.find(K=>w===K.k)||KEYS.find(K=>K.k.length>=5&&w.length>=5&&(w.startsWith(K.k)||lev(w,K.k)<=(K.k.length>=8?2:1)));
+    if(K&&!seen.has(K.e.g)){seen.add(K.e.g);out.push(K)}
+  });
+  return out;
+}
+function parse(ctx){
+  const c=ctx.toLowerCase(),P=["08:00","14:00","20:00"],r={times:[],dose:1,days:0,food:"any",strength:"",guess:false};
+  const m=c.match(/(\d{1,2}(?:\.5)?)\s*[-+x*]\s*(\d{1,2}(?:\.5)?)\s*[-+x*]\s*(\d{1,2}(?:\.5)?)/);
+  if(m){const n=[+m[1],+m[2],+m[3]];n.forEach((v,i)=>{if(v>0)r.times.push(P[i])});r.dose=Math.max(...n)||1}
+  else if(/\b(qid|qds|four times)/.test(c))r.times=["08:00","12:00","16:00","20:00"];
+  else if(/\b(tds|tid|t\.d\.s|thrice|three times)/.test(c))r.times=P;
+  else if(/\b(bd|bid|b\.d|twice)/.test(c))r.times=["08:00","20:00"];
+  else if(/\b(hs|at night|bedtime)\b/.test(c))r.times=["22:00"];
+  else if(/\b(od|qd|once)\b/.test(c))r.times=["08:00"];
+  if(!r.times.length){r.times=["08:00"];r.guess=true}
+  const d=c.match(/(\d{1,3})\s*(days?|d|weeks?|wks?)\b/);if(d)r.days=+d[1]*(/^w/.test(d[2])?7:1);
+  if(/after (meal|food)|post ?prandial/.test(c))r.food="after";
+  else if(/before (meal|food|breakfast|lunch|dinner)|empty stomach/.test(c))r.food="before";
+  else if(/with (meal|food)/.test(c))r.food="with";
+  const s=c.match(/(\d+(?:\.\d+)?)\s*(mg|mcg|g|iu)\b/);if(s)r.strength=s[1]+" "+{mg:"mg",mcg:"mcg",g:"g",iu:"IU"}[s[2]];
+  return r;
+}
+function extract(text){
+  const L=text.split(/\n+/),out=[],seen=new Set();
+  L.forEach((ln,i)=>{
+    const f=find(ln);if(!f.length)return;
+    let ctx=ln;if(i+1<L.length&&!find(L[i+1]).length)ctx+=" "+L[i+1];
+    f.forEach(K=>{if(seen.has(K.e.g))return;seen.add(K.e.g);out.push({e:K.e,br:K.br,...parse(ctx),on:true})});
+  });
+  return out;
+}
+
+function load(k,d){try{return JSON.parse(localStorage.getItem(k))||d}catch(e){return d}}
+let meds=load("meds",[]), log=load("log",{}), view="today", editing=null, form=blank(), notified={};
+function save(){try{localStorage.setItem("meds",JSON.stringify(meds));localStorage.setItem("log",JSON.stringify(log))}catch(e){}}
+function blank(){return{name:"",strength:"",opts:[],note:"",dose:1,times:["08:00"],food:"after",stock:30,alertDays:5}}
+const $=id=>document.getElementById(id), pad=n=>String(n).padStart(2,"0");
+const dk=d=>d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+const hm=d=>pad(d.getHours())+":"+pad(d.getMinutes());
+const mins=t=>{const[h,m]=t.split(":").map(Number);return h*60+m};
+const t12=t=>{const[h,m]=t.split(":").map(Number);return (h%12||12)+":"+pad(m)+" "+(h<12?"AM":"PM")};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const FOOD={before:"before food",after:"after food",with:"with food",any:""};
+const perDay=m=>m.dose*m.times.length, daysLeft=m=>Math.floor(m.stock/perDay(m));
+const isLow=m=>daysLeft(m)<=m.alertDays;
+const desc=m=>[m.dose+" per dose",FOOD[m.food],m.note].filter(Boolean).join(" · ");
+
+function doses(){
+  const k=dk(new Date()),out=[];
+  meds.forEach(m=>m.times.forEach(t=>out.push({m,t,id:m.id+"|"+t,done:!!(log[k]&&log[k][m.id+"|"+t])})));
+  return out.sort((a,b)=>a.t.localeCompare(b.t));
+}
+
+
+const IX=(function(){
+const D=[
+["warfarin","Warfarin","Warf"],["aspirin","Aspirin","Disprin"],["ibuprofen","Ibuprofen","Brufen"],
+["diclofenac","Diclofenac","Voltaren"],["naproxen","Naproxen","Naprosyn"],["mefenamic","Mefenamic acid","Ponstan"],["paracetamol","Paracetamol","Panadol"],
+["metformin","Metformin","Glucophage"],["insulin","Insulin",""],["glibenclamide","Glibenclamide","Daonil"],
+["amlodipine","Amlodipine","Norvasc"],["nifedipine","Nifedipine","Adalat"],["atenolol","Atenolol","Tenormin"],["bisoprolol","Bisoprolol","Concor"],["propranolol","Propranolol","Inderal"],
+["enalapril","Enalapril","Renitec"],["losartan","Losartan","Cozaar"],["spironolactone","Spironolactone","Aldactone"],["furosemide","Furosemide","Lasix"],["hydrochlorothiazide","Hydrochlorothiazide","HCTZ"],
+["atorvastatin","Atorvastatin","Lipitor"],["simvastatin","Simvastatin","Zocor"],["rosuvastatin","Rosuvastatin","Crestor"],
+["amoxicillin","Amoxicillin","Amoxil"],["coamoxiclav","Amoxicillin-clavulanate","Augmentin"],["azithromycin","Azithromycin","Zithromax"],["clarithromycin","Clarithromycin","Klaricid"],
+["cefixime","Cefixime","Suprax"],["ciprofloxacin","Ciprofloxacin","Ciproxin"],["doxycycline","Doxycycline","Vibramycin"],["metronidazole","Metronidazole","Flagyl"],["cotrimoxazole","Co-trimoxazole","Septran"],["fluconazole","Fluconazole","Diflucan"],
+["omeprazole","Omeprazole","Risek"],["esomeprazole","Esomeprazole","Nexum"],["pantoprazole","Pantoprazole","Controloc"],["domperidone","Domperidone","Motilium"],["ondansetron","Ondansetron","Zofran"],["loperamide","Loperamide","Imodium"],
+["cetirizine","Cetirizine","Zyrtec"],["loratadine","Loratadine","Clarityn"],["chlorpheniramine","Chlorpheniramine","Piriton"],["diphenhydramine","Diphenhydramine","Benadryl"],["fexofenadine","Fexofenadine","Telfast"],
+["montelukast","Montelukast","Singulair"],["salbutamol","Salbutamol","Ventolin"],["prednisolone","Prednisolone","Deltacortril"],["dexamethasone","Dexamethasone","Decadron"],
+["clopidogrel","Clopidogrel","Plavix"],["digoxin","Digoxin","Lanoxin"],["levothyroxine","Levothyroxine","Euthyrox"],["antacid","Calcium / antacid","Gaviscon"],["iron","Iron (ferrous sulfate)","Ferrous"],["potassium","Potassium chloride","KCl"],
+["sildenafil","Sildenafil","Viagra"],["isosorbide","Isosorbide dinitrate","Isordil"],["sertraline","Sertraline","Zoloft"],["tramadol","Tramadol","Tramal"],
+["diazepam","Diazepam","Valium"],["alprazolam","Alprazolam","Xanax"],["amitriptyline","Amitriptyline","Tryptanol"],["gabapentin","Gabapentin","Neurontin"],
+["methotrexate","Methotrexate",""],["allopurinol","Allopurinol","Zyloric"],
+["ketorolac","Ketorolac","Toradol"],["piroxicam","Piroxicam","Feldene"],["meloxicam","Meloxicam","Mobic"],["indomethacin","Indomethacin","Indocid"],
+["ketoprofen","Ketoprofen","Profenid"],["flurbiprofen","Flurbiprofen","Froben"],["aceclofenac","Aceclofenac",""],["lornoxicam","Lornoxicam","Xefo"],
+["etodolac","Etodolac","Lodine"],["sulindac","Sulindac","Clinoril"],["tenoxicam","Tenoxicam","Tilcotil"],["nabumetone","Nabumetone","Relifex"],
+["dexketoprofen","Dexketoprofen","Keral"],["celecoxib","Celecoxib","Celebrex"],["etoricoxib","Etoricoxib","Arcoxia"],
+["glimepiride","Glimepiride","Amaryl"],["gliclazide","Gliclazide","Diamicron"],["sitagliptin","Sitagliptin","Januvia"],["vildagliptin","Vildagliptin","Galvus"],
+["linagliptin","Linagliptin","Trajenta"],["pioglitazone","Pioglitazone","Actos"],["empagliflozin","Empagliflozin","Jardiance"],["dapagliflozin","Dapagliflozin","Forxiga"],
+["lisinopril","Lisinopril","Zestril"],["captopril","Captopril","Capoten"],["valsartan","Valsartan","Diovan"],["telmisartan","Telmisartan","Micardis"],["candesartan","Candesartan","Atacand"],
+["metoprolol","Metoprolol","Betaloc,Lopressor"],["carvedilol","Carvedilol","Dilatrend"],["verapamil","Verapamil","Isoptin"],["diltiazem","Diltiazem","Herbesser,Cardizem"],
+["clonidine","Clonidine","Catapres"],["methyldopa","Methyldopa","Aldomet"],["indapamide","Indapamide","Natrilix"],
+["rivaroxaban","Rivaroxaban","Xarelto"],["apixaban","Apixaban","Eliquis"],["dabigatran","Dabigatran","Pradaxa"],["enoxaparin","Enoxaparin","Clexane"],["ticagrelor","Ticagrelor","Brilinta"],
+["cefuroxime","Cefuroxime","Zinnat"],["ceftriaxone","Ceftriaxone","Rocephin"],["cephalexin","Cephalexin","Keflex"],["levofloxacin","Levofloxacin","Tavanic,Levaquin"],
+["moxifloxacin","Moxifloxacin","Avelox"],["erythromycin","Erythromycin","Erythrocin"],["clindamycin","Clindamycin","Dalacin C"],["rifampicin","Rifampicin","Rifadin,Rimactane"],
+["gentamicin","Gentamicin","Garamycin"],["amikacin","Amikacin","Amikin"],["meropenem","Meropenem","Meronem"],["linezolid","Linezolid","Zyvox"],["nitrofurantoin","Nitrofurantoin","Macrobid,Furadantin"],
+["tinidazole","Tinidazole","Fasigyn"],["albendazole","Albendazole","Zentel"],["acyclovir","Acyclovir","Zovirax"],["hydroxychloroquine","Hydroxychloroquine","Plaquenil"],
+["clonazepam","Clonazepam","Rivotril"],["lorazepam","Lorazepam","Ativan"],["bromazepam","Bromazepam","Lexotanil"],["zolpidem","Zolpidem","Stilnox"],["phenobarbital","Phenobarbital",""],
+["morphine","Morphine",""],["codeine","Codeine",""],["fluoxetine","Fluoxetine","Prozac"],["paroxetine","Paroxetine","Seroxat"],["citalopram","Citalopram","Cipram"],
+["escitalopram","Escitalopram","Cipralex"],["venlafaxine","Venlafaxine","Efexor"],["mirtazapine","Mirtazapine","Remeron"],["quetiapine","Quetiapine","Seroquel"],
+["olanzapine","Olanzapine","Zyprexa"],["haloperidol","Haloperidol","Haldol,Serenace"],["carbamazepine","Carbamazepine","Tegretol"],["valproate","Sodium valproate","Epilim,Depakine"],
+["phenytoin","Phenytoin","Epanutin,Dilantin"],["lamotrigine","Lamotrigine","Lamictal"],["pregabalin","Pregabalin","Lyrica"],["levetiracetam","Levetiracetam","Keppra"],
+["caffeine","Caffeine",""],["methylphenidate","Methylphenidate","Ritalin"],["modafinil","Modafinil","Provigil"],
+["folic","Folic acid",""],["cyanocobalamin","Vitamin B12 (cyanocobalamin)",""],["ironsucrose","Iron sucrose (IV iron)","Venofer"],
+["fenofibrate","Fenofibrate","Lipanthyl"],["lansoprazole","Lansoprazole","Zoton"],["metoclopramide","Metoclopramide","Maxolon"],["mebendazole","Mebendazole","Vermox"],
+["oseltamivir","Oseltamivir","Tamiflu"],["tizanidine","Tizanidine","Sirdalud"],["baclofen","Baclofen","Lioresal"],["finasteride","Finasteride","Proscar"],["febuxostat","Febuxostat","Feburic"]];
+const NSNS=["ibuprofen","diclofenac","naproxen","mefenamic","ketorolac","piroxicam","meloxicam","indomethacin","ketoprofen","flurbiprofen","aceclofenac","lornoxicam","etodolac","sulindac","tenoxicam","nabumetone","dexketoprofen"];
+const COX2=["celecoxib","etoricoxib"], NS=[...NSNS,...COX2], RAS=["enalapril","lisinopril","captopril","losartan","valsartan","telmisartan","candesartan"], DM=["insulin","glibenclamide","glimepiride","gliclazide"];
+const CS=["prednisolone","dexamethasone"], BB=["atenolol","bisoprolol","propranolol","metoprolol","carvedilol"], BZ=["diazepam","alprazolam","clonazepam","lorazepam","bromazepam"];
+const SEDAH=["chlorpheniramine","diphenhydramine","cetirizine"], AH=[...SEDAH,"loratadine","fexofenadine"];
+const PPI=["omeprazole","esomeprazole","pantoprazole","lansoprazole"], DIUR=["furosemide","hydrochlorothiazide","indapamide"];
+/* [group A, group B, severity, what happens, what to do] */
+const SU=["glibenclamide","glimepiride","gliclazide"], ACEI=["enalapril","lisinopril","captopril"], ARB=["losartan","valsartan","telmisartan","candesartan"];
+const DOAC=["rivaroxaban","apixaban","dabigatran","enoxaparin"], APLT=["aspirin","clopidogrel","ticagrelor"], STATIN=["atorvastatin","simvastatin","rosuvastatin"];
+const IND=["rifampicin","carbamazepine","phenytoin"], SSRI=["sertraline","fluoxetine","paroxetine","citalopram","escitalopram"], FQ=["ciprofloxacin","levofloxacin","moxifloxacin"];
+const OP=["tramadol","morphine","codeine"], CNSD=[...BZ,...OP,"zolpidem","phenobarbital","gabapentin","pregabalin","amitriptyline","quetiapine","olanzapine","haloperidol",...SEDAH];
+const QT=[...FQ,"azithromycin","clarithromycin","erythromycin","ondansetron","domperidone","haloperidol","citalopram","escitalopram","quetiapine","fluconazole","hydroxychloroquine"];
+const HTN=[...RAS,...BB,"amlodipine","nifedipine","verapamil","diltiazem",...DIUR,"spironolactone","clonidine","methyldopa"];
+const R=[
+[CNSD,CNSD,"Moderate","Additive drowsiness and slowed breathing or reactions.","Use the lowest doses; avoid alcohol and driving."],
+[BZ,BZ,"Moderate","Duplicate benzodiazepines: extra sedation.","Avoid taking more than one."],
+[BZ,OP,"Major","Profound drowsiness and slowed or stopped breathing.","Avoid; if unavoidable use the lowest doses and monitor."],
+[QT,QT,"Moderate","Additive QT prolongation (heart rhythm risk).","Use caution; check potassium and avoid in heart disease if possible."],
+[SSRI,SSRI,"Moderate","Two SSRIs raise the risk of serotonin syndrome.","Avoid taking two together."],
+[["warfarin"],[...NSNS,"aspirin"],"Major","Bleeding risk rises sharply (especially stomach bleeding).","Avoid. Use paracetamol for pain. If unavoidable, add stomach protection and monitor INR."],
+[["warfarin"],["clarithromycin","metronidazole","fluconazole"],"Major","INR can rise a lot, causing serious bleeding.","Avoid, or cut the warfarin dose with close INR checks."],
+[["warfarin"],["ciprofloxacin","paracetamol","levothyroxine","sertraline","amoxicillin","coamoxiclav","azithromycin","cefixime","doxycycline","rosuvastatin","allopurinol",...CS],"Moderate","INR or bleeding risk may change.","Monitor INR; adjust warfarin if needed."],
+[["aspirin"],NS,"Moderate","More stomach bleeding. Ibuprofen and naproxen can block aspirin's heart-protective effect.","If both are needed, take aspirin at least 30 minutes before ibuprofen. Avoid long-term combination."],
+[["clopidogrel"],["omeprazole","esomeprazole"],"Moderate","These PPIs may reduce clopidogrel's activation, weakening its effect.","Prefer pantoprazole as the stomach protector."],
+[["clopidogrel"],["aspirin",...NS],"Moderate","More bleeding. Aspirin plus clopidogrel is sometimes prescribed on purpose.","Use only if prescribed; avoid adding NSAIDs."],
+[RAS,NS,"Moderate","Weaker blood-pressure control and higher kidney injury risk, especially with a diuretic.","Use the lowest dose for the shortest time; monitor kidney function."],
+[RAS,["spironolactone","potassium"],"Major","Dangerously high potassium (hyperkalemia).","Avoid unless monitored. Check potassium and kidney function."],
+[["spironolactone"],["potassium"],"Major","Dangerously high potassium.","Avoid combination."],
+[DIUR,NS,"Moderate","Weaker water-pill effect and more kidney stress.","Monitor kidney function and fluid status."],
+[DIUR,["digoxin",...CS],"Moderate","Low potassium; with digoxin this raises the risk of toxicity.","Monitor potassium."],
+[["digoxin"],["clarithromycin"],"Major","Digoxin levels rise, risking toxicity (nausea, slow or irregular heartbeat).","Avoid, or monitor digoxin levels and reduce the dose."],
+[["digoxin"],["azithromycin"],"Moderate","Digoxin levels may rise.","Watch for toxicity signs; check levels if symptoms appear."],
+[["digoxin"],BB,"Moderate","Both slow the heart; risk of bradycardia or heart block.","Monitor pulse and ECG."],
+[DM,BB,"Moderate","Beta-blockers can hide warning signs of low blood sugar (fast heartbeat).","Check blood sugar more often; sweating remains a warning sign."],
+[[...DM,"metformin"],CS,"Moderate","Steroids raise blood sugar.","Monitor sugar; the diabetes dose may need to go up."],
+[["hydrochlorothiazide"],[...DM,"metformin"],"Moderate","Thiazides can raise blood sugar.","Monitor sugar; the diabetes dose may need adjusting."],
+[["glibenclamide"],["fluconazole","cotrimoxazole","ciprofloxacin"],"Moderate","Blood sugar can drop dangerously low (or swing).","Monitor sugar closely; consider a different antibiotic or antifungal."],
+[["atorvastatin"],["clarithromycin","fluconazole"],"Moderate","Higher statin levels increase the risk of muscle damage.","Pause or limit the statin dose during the course; report muscle pain."],
+[["simvastatin"],["clarithromycin"],"Major","Very high simvastatin levels; serious muscle breakdown (rhabdomyolysis) risk.","Avoid. Pause simvastatin during the antibiotic course."],
+[["simvastatin"],["fluconazole","amlodipine"],"Moderate","Higher simvastatin levels increase the risk of muscle damage.","With amlodipine keep simvastatin at 20 mg/day or less; report muscle pain."],
+[["rosuvastatin"],["antacid"],"Moderate","Aluminium/magnesium antacids reduce rosuvastatin absorption.","Take the antacid at least 2 hours after rosuvastatin."],
+[["ciprofloxacin","doxycycline"],["antacid","iron"],"Moderate","Calcium, antacids and iron bind the antibiotic, so less is absorbed.","Ciprofloxacin: 2 h before or 6 h after. Doxycycline: separate by 2-3 hours."],
+[["levothyroxine"],["antacid","iron"],"Moderate","These reduce levothyroxine absorption.","Separate by at least 4 hours."],
+[["levothyroxine"],PPI,"Moderate","Less stomach acid can reduce levothyroxine absorption.","Check TSH when a PPI is started or stopped."],
+[["antacid"],["iron","gabapentin","fexofenadine"],"Moderate","Antacids reduce absorption of the other drug.","Separate by about 2 hours."],
+[["ciprofloxacin"],NS,"Moderate","Higher risk of seizures or nervous-system stimulation.","Use caution, especially in epilepsy and the elderly."],
+[["ciprofloxacin"],CS,"Moderate","Higher risk of tendon inflammation or rupture.","Avoid if possible in the elderly; stop and seek care for tendon pain."],
+[["clarithromycin","fluconazole"],["amlodipine","nifedipine"],"Moderate","Higher calcium-channel-blocker levels; low blood pressure or swelling.","Monitor blood pressure; dose reduction may be needed."],
+[["clarithromycin","fluconazole"],[...BZ],"Moderate","Higher benzodiazepine levels; stronger, longer sedation.","Use a lower dose or choose another antibiotic."],
+[["domperidone"],["clarithromycin","fluconazole"],"Major","QT prolongation with risk of dangerous heart rhythms.","Avoid combination."],
+[["domperidone","ondansetron"],["azithromycin","ciprofloxacin"],"Moderate","Additive QT prolongation (heart rhythm risk).","Use caution, especially with heart disease or low potassium."],
+[["ondansetron"],["clarithromycin","fluconazole","domperidone"],"Moderate","Additive QT prolongation (heart rhythm risk).","Use caution; consider an ECG in high-risk patients."],
+[["sildenafil"],["isosorbide"],"Major","Severe, possibly fatal drop in blood pressure.","Contraindicated. Never combine."],
+[BZ,["tramadol"],"Major","Profound drowsiness and slowed or stopped breathing.","Avoid; if unavoidable use the lowest doses and monitor."],
+[BZ,["gabapentin","amitriptyline",...AH],"Moderate","Extra drowsiness and slowed reactions or breathing.","Avoid driving and alcohol; use the lowest doses."],
+[["diazepam"],["alprazolam"],"Moderate","Duplicate benzodiazepines: extra sedation.","Avoid taking both."],
+[["tramadol"],["amitriptyline","sertraline"],"Major","Risk of serotonin syndrome and seizures.","Avoid; choose another pain medicine."],
+[["tramadol"],["gabapentin",...SEDAH],"Moderate","Extra drowsiness.","Use caution; avoid driving."],
+[["tramadol","sertraline"],["ondansetron"],"Moderate","Serotonin effects add up; ondansetron may also weaken tramadol's pain relief.","Monitor for agitation, tremor, fast heartbeat."],
+[["amitriptyline"],SEDAH,"Moderate","Extra drowsiness plus dry mouth, constipation, confusion or urine retention.","Use caution, especially in the elderly."],
+[["amitriptyline"],["sertraline"],"Moderate","Sertraline raises amitriptyline levels; serotonin effects add up.","Monitor; a lower amitriptyline dose may be needed."],
+[["gabapentin"],SEDAH,"Moderate","Extra drowsiness.","Use caution; avoid driving."],
+[AH,AH,"Moderate","Two antihistamines together add drowsiness and side effects.","Use only one."],
+[["sertraline"],[...NS,"aspirin"],"Moderate","More bleeding risk.","Use with caution; consider stomach protection."],
+[["omeprazole","esomeprazole"],["diazepam"],"Moderate","Higher diazepam levels; stronger sedation.","Monitor drowsiness; consider pantoprazole."],
+[["methotrexate"],["cotrimoxazole"],"Major","Severe bone marrow suppression.","Avoid combination."],
+[["methotrexate"],[...NS,"aspirin",...PPI,"amoxicillin","coamoxiclav"],"Moderate","Methotrexate levels may rise, causing more toxicity (serious at high doses).","Monitor blood counts and kidney function."],
+[CS,[...NS,"aspirin"],"Moderate","Higher risk of stomach ulcers and bleeding.","Add stomach protection if both are necessary."],
+[["salbutamol"],[...DIUR,...CS],"Moderate","Low potassium (hypokalemia) can add up.","Monitor potassium, especially with high doses."],
+[["propranolol"],["salbutamol"],"Major","Propranolol blocks salbutamol and can trigger bronchospasm.","Avoid in asthma/COPD; choose another beta-blocker or drug."],
+[["atenolol","bisoprolol"],["salbutamol"],"Moderate","Beta-blockers can weaken salbutamol's effect.","Use cautiously; cardio-selective agents are preferred."],
+[["allopurinol"],["amoxicillin","coamoxiclav"],"Moderate","Higher chance of skin rash.","Stop and seek advice if a rash appears."],
+[["warfarin"],COX2,"Moderate","Higher bleeding risk and possible INR rise.","Avoid if possible; monitor INR and watch for bleeding."],
+[NS,NS,"Moderate","Two NSAIDs together raise the risk of stomach bleeding and kidney injury without extra pain relief.","Use only one NSAID at a time."],
+[["ketorolac"],[...NS,"aspirin"],"Major","Ketorolac must not be combined with other NSAIDs or aspirin: very high risk of bleeding and kidney injury.","Avoid. Ketorolac is for short courses only (maximum 5 days)."],
+[NS,BB,"Moderate","NSAIDs can raise blood pressure and weaken the beta-blocker's effect.","Monitor blood pressure."],
+[["spironolactone"],NS,"Moderate","Higher risk of high potassium and kidney injury; weaker diuretic effect.","Monitor potassium and kidney function."],
+[["fluconazole"],["celecoxib","ibuprofen","diclofenac","meloxicam","piroxicam"],"Moderate","Fluconazole raises these NSAID levels (CYP2C9), increasing side effects.","Use a lower NSAID dose; halve the celecoxib dose."],
+[["warfarin"],["tinidazole","erythromycin","rifampicin"],"Major","INR changes sharply (rises with tinidazole/erythromycin, falls with rifampicin).","Avoid or adjust warfarin with close INR checks."],
+[["warfarin"],["carbamazepine","phenytoin",...SSRI,"venlafaxine","methylphenidate"],"Moderate","INR or bleeding risk may change.","Monitor INR."],
+[DOAC,NS,"Major","Bleeding risk rises sharply.","Avoid NSAIDs; use paracetamol for pain."],
+[DOAC,APLT,"Moderate","More bleeding. Sometimes combined on purpose.","Use only if prescribed; monitor for bleeding."],
+[["rivaroxaban","apixaban","dabigatran"],IND,"Major","Lower anticoagulant levels, so clot risk rises.","Avoid combination."],
+[["rivaroxaban","apixaban"],["clarithromycin","fluconazole"],"Moderate","Higher anticoagulant levels, more bleeding.","Monitor; avoid in kidney impairment."],
+[ACEI,ARB,"Moderate","Dual blockade raises the risk of high potassium, low blood pressure and kidney injury.","Avoid routine combination; monitor."],
+[BB,["verapamil","diltiazem"],"Major","Dangerous slowing of the heart (bradycardia, heart block).","Avoid, or monitor ECG closely."],
+[["verapamil","diltiazem"],["digoxin"],"Moderate","Higher digoxin levels and a slow heart rate.","Monitor levels and pulse."],
+[["verapamil","diltiazem"],["atorvastatin","simvastatin"],"Moderate","Higher statin levels increase muscle damage risk.","Limit the statin dose (simvastatin 10 mg/day)."],
+[["clonidine"],BB,"Moderate","Beta-blockers can worsen rebound high blood pressure if clonidine is stopped.","Stop the beta-blocker first, slowly."],
+[["empagliflozin","dapagliflozin"],DIUR,"Moderate","Extra fluid loss and low blood pressure.","Monitor hydration and kidney function."],
+[["indapamide"],["digoxin"],"Moderate","Low potassium raises digoxin toxicity risk.","Monitor potassium."],
+[["methylphenidate"],HTN,"Moderate","Can raise blood pressure and weaken blood-pressure medicines.","Monitor blood pressure."],
+[SU,["fluconazole","cotrimoxazole",...FQ],"Moderate","Blood sugar can drop dangerously low (or swing).","Monitor sugar closely."],
+[["insulin"],["pioglitazone"],"Moderate","More fluid retention and heart failure risk.","Monitor weight and swelling."],
+[[...DM,"metformin"],FQ,"Moderate","Blood sugar can swing high or low.","Monitor sugar."],
+[["metformin"],["cyanocobalamin"],"Moderate","Long-term metformin lowers vitamin B12.","Check B12 yearly; supplement if low."],
+[FQ,["antacid","iron","ironsucrose"],"Moderate","Calcium, antacids and iron bind the antibiotic, so less is absorbed.","Take the antibiotic 2 hours before or 6 hours after."],
+[FQ,NS,"Moderate","Higher risk of seizures or nervous-system stimulation.","Use caution, especially in epilepsy and the elderly."],
+[FQ,CS,"Moderate","Higher risk of tendon inflammation or rupture.","Avoid if possible in the elderly; stop and seek care for tendon pain."],
+[["erythromycin"],["simvastatin"],"Major","Very high simvastatin levels; serious muscle breakdown risk.","Avoid. Pause simvastatin during the course."],
+[["erythromycin"],["atorvastatin","digoxin",...BZ,"amlodipine","nifedipine"],"Moderate","Erythromycin raises these drug levels.","Monitor; lower the dose or pick another antibiotic."],
+[["clarithromycin","erythromycin"],["carbamazepine"],"Major","Carbamazepine toxicity (dizziness, double vision, confusion).","Avoid, or monitor levels."],
+[["erythromycin"],["domperidone"],"Major","QT prolongation with risk of dangerous heart rhythms.","Avoid combination."],
+[["linezolid"],[...SSRI,"venlafaxine","tramadol","mirtazapine"],"Major","Risk of serotonin syndrome.","Avoid."],
+[["gentamicin","amikacin"],["furosemide",...NS],"Moderate","Higher risk of kidney and hearing damage.","Monitor kidney function and hearing."],
+[["rifampicin"],[...CS,...BZ,"levothyroxine","atorvastatin","simvastatin","amlodipine","nifedipine","metoprolol","carvedilol"],"Moderate","Rifampicin lowers levels of these drugs, weakening them.","Monitor response; the dose may need increasing."],
+[["meropenem"],["valproate"],"Major","Meropenem sharply lowers valproate levels; seizures may return.","Avoid; use another antibiotic."],
+[["valproate"],["lamotrigine"],"Major","Valproate doubles lamotrigine levels; serious rash risk.","Halve the lamotrigine dose and titrate slowly."],
+[["phenytoin"],["fluconazole","folic"],"Moderate","Phenytoin levels change (fluconazole raises, folic acid lowers).","Monitor phenytoin levels."],
+[["caffeine"],["ciprofloxacin"],"Moderate","Ciprofloxacin raises caffeine levels: jitteriness, fast heart rate.","Cut down caffeine during the course."],
+[["methylphenidate"],SSRI,"Moderate","SSRIs may raise methylphenidate effects; serotonin symptoms possible.","Monitor."],
+[SSRI,[...NS,"aspirin"],"Moderate","More bleeding risk.","Use caution; consider stomach protection."],
+[SSRI,["tramadol"],"Major","Risk of serotonin syndrome and seizures.","Avoid; choose another pain medicine."],
+[["fluoxetine","paroxetine"],["metoprolol","carvedilol","propranolol"],"Moderate","Higher beta-blocker levels (slow heart rate).","Monitor pulse; a lower beta-blocker dose may be needed."],
+[["fenofibrate"],STATIN,"Moderate","Higher risk of muscle damage.","Monitor for muscle pain."]
+];
+const BR={warfarin:"Warf,Coumadin",aspirin:"Disprin,Loprin,Aspirin",ibuprofen:"Brufen,Nurofen",diclofenac:"Voltaren,Olfen,Cataflam",naproxen:"Naprosyn,Synflex",
+mefenamic:"Ponstan",paracetamol:"Panadol,Calpol,Disprol,Tylenol,Acetaminophen",metformin:"Glucophage",insulin:"Mixtard,Lantus,Humulin,Novorapid",
+glibenclamide:"Daonil,Euglucon",amlodipine:"Norvasc,Amlor",nifedipine:"Adalat,Calcigard",atenolol:"Tenormin",bisoprolol:"Concor",propranolol:"Inderal",
+enalapril:"Renitec,Vasotec",losartan:"Cozaar",spironolactone:"Aldactone",furosemide:"Lasix",atorvastatin:"Lipitor",simvastatin:"Zocor",rosuvastatin:"Crestor",
+amoxicillin:"Amoxil",coamoxiclav:"Augmentin,Co-amoxiclav",azithromycin:"Zithromax,Zimax,Azomax",clarithromycin:"Klaricid,Klacid",cefixime:"Suprax,Cefspan",
+ciprofloxacin:"Ciproxin,Novidat",doxycycline:"Vibramycin",metronidazole:"Flagyl",cotrimoxazole:"Septran,Bactrim",fluconazole:"Diflucan",omeprazole:"Risek,Losec",
+esomeprazole:"Nexum,Nexium",pantoprazole:"Controloc",domperidone:"Motilium",ondansetron:"Zofran",loperamide:"Imodium",cetirizine:"Zyrtec",loratadine:"Clarityn",
+chlorpheniramine:"Piriton",diphenhydramine:"Benadryl",fexofenadine:"Telfast",montelukast:"Singulair",salbutamol:"Ventolin,Albuterol",prednisolone:"Deltacortril",
+dexamethasone:"Decadron",clopidogrel:"Plavix",digoxin:"Lanoxin",levothyroxine:"Euthyrox,Thyronorm,Eltroxin",antacid:"Gaviscon,Mucaine,Maalox,Digene,Polycrol,Caltrate",
+sildenafil:"Viagra",isosorbide:"Isordil",sertraline:"Zoloft",tramadol:"Tramal",diazepam:"Valium",alprazolam:"Xanax",amitriptyline:"Tryptanol",gabapentin:"Neurontin",allopurinol:"Zyloric"};
+D.forEach(d=>{if(BR[d[0]])d[2]=BR[d[0]]});
+let CB=[];try{CB=JSON.parse(localStorage.getItem("cb"))||[]}catch(e){}
+const nz=s=>s.toLowerCase().replace(/[^a-z0-9]/g,"");
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const brandsOf=d=>(d[2]?d[2].split(","):[]).concat(CB.filter(c=>c[1]===d[0]).map(c=>c[0]));
+const M={}; // pair map
+R.forEach(r=>r[0].forEach(a=>r[1].forEach(b=>{if(a!==b)M[[a,b].sort().join("|")]={sev:r[2],fx:r[3],todo:r[4]}})));
+
+return {D,M};})();
+const nzl=s=>s.toLowerCase().replace(/[^a-z0-9]/g,"");
+const dname=id=>IX.D.find(d=>d[0]===id)[1];
+function ixId(m){
+  const t=nzl(dn(m)+" "+(m.name||""));let best=null,bl=0;
+  IX.D.forEach(d=>[d[1],...(d[2]?d[2].split(","):[])].forEach(c=>{const k=nzl(c);if(k.length>=4&&t.includes(k)&&k.length>bl){best=d[0];bl=k.length}}));
+  return best;
+}
+function ixList(list){
+  const out=[],ids=list.map(m=>({m,id:ixId(m)}));
+  for(let i=0;i<ids.length;i++)for(let j=i+1;j<ids.length;j++){
+    const a=ids[i],b=ids[j];if(!a.id||!b.id)continue;
+    if(a.id===b.id){out.push({a:dn(a.m),b:dn(b.m),sev:"Major",dup:1,fx:"Both contain "+dname(a.id)+". Taking them together doubles the dose.",todo:"Use only one."});continue}
+    const x=IX.M[[a.id,b.id].sort().join("|")];if(x)out.push({a:dn(a.m),b:dn(b.m),...x});
+  }
+  return out.sort((p,q)=>(p.sev==="Major"?0:1)-(q.sev==="Major"?0:1));
+}
+function okToAdd(nm,base){
+  base=base||meds;
+  const old=new Set(ixList(base).map(x=>x.a+"|"+x.b)),w=ixList([...base,...nm]).filter(x=>!old.has(x.a+"|"+x.b));
+  if(!w.length)return true;
+  return confirm(w.length+" interaction"+(w.length>1?"s":"")+" found:\n\n"+w.slice(0,4).map(x=>x.sev.toUpperCase()+": "+x.a+" + "+x.b+"\n"+x.fx).join("\n\n")+"\n\nAdd anyway?");
+}
+function vSafe(){
+  if(meds.length<2)return '<div class="empty">Add at least two medicines to check interactions between them.</div>';
+  const L=ixList(meds),unk=meds.filter(m=>!ixId(m));
+  let h=L.length?`<div class="banner ${L.some(x=>x.sev==="Major")?"low":"hint"}"><b>${L.length} interaction${L.length>1?"s":""} found</b> among your medicines. Show this to your doctor or pharmacist.</div>`+
+    L.map(x=>`<div class="card res ${x.sev}"><b>${esc(x.a)} + ${esc(x.b)}</b> <span class="tag">${x.dup?"Duplicate":x.sev}</span><p>${x.fx}</p><p><b>What to do:</b> ${x.todo}</p></div>`).join(""):'<div class="banner hint">No interactions found among your medicines in this database.</div>';
+  if(unk.length)h+=`<p class="muted">Not in the interaction database, so not checked: ${unk.map(m=>esc(dn(m))).join(", ")}</p>`;
+  return h+'<p class="muted">Screening aid only. No warning does not mean a combination is safe.</p>';
+}
+function vToday(){
+  if(!meds.length)return '<div class="empty">No medicines yet.<br>Tap <b>Add</b> to set up your first one.</div>';
+  const now=hm(new Date()), ds=doses(), low=meds.filter(isLow);
+  let taken=0,sched=0;
+  for(let i=0;i<7;i++){const d=new Date();d.setDate(d.getDate()-i);taken+=Object.keys(log[dk(d)]||{}).length;sched+=ds.length}
+  const pct=sched?Math.min(100,Math.round(taken/sched*100)):0;
+  let h='';
+  const XL=ixList(meds);if(XL.length)h+=`<div class="banner low" data-a="gosafe" style="cursor:pointer"><b>${XL.length} medicine interaction${XL.length>1?"s":""}</b>${XL.some(x=>x.sev==="Major")?" (major)":""}. Tap to review in Safety.</div>`;
+  if(low.length)h+=`<div class="banner low"><b>Refill soon:</b> ${low.map(m=>esc(dn(m))+" ("+daysLeft(m)+" days left)").join(", ")}</div>`;
+  if("Notification" in window&&Notification.permission==="default")h+='<div class="banner hint">Turn on alerts to get a notification when a dose is due. <div class="row"><button class="b s" data-a="notif">Enable alerts</button></div></div>';
+  h+=`<div class="card ring"><div>Doses taken, last 7 days</div><b>${pct}%</b></div>`;
+  h+='<h2>Today</h2>'+ds.map(d=>{
+    const late=!d.done&&d.t<now;
+    return `<div class="dose ${d.done?"done":late?"late":""}"><div class="t">${t12(d.t)}</div><div class="n"><b>${esc(dn(d.m))}</b><br><small>${esc(desc(d.m))}${late?" · overdue":""}</small></div><button class="b ${d.done?"o":""} s" data-a="take" data-id="${d.id}">${d.done?"Undo":"Taken"}</button></div>`;
+  }).join("");
+  h+='<div class="banner hint" style="margin-top:12px">Alerts only work while this page is open. For reliable alarms, open <b>Medicines</b> and tap <b>Add to phone calendar</b>.</div>';
+  return h;
+}
+
+function vMeds(){
+  if(!meds.length)return '<div class="empty">Nothing here yet.</div>';
+  const XL=ixList(meds);
+  let h=meds.map(m=>{
+    const flagged=XL.some(x=>x.a===dn(m)||x.b===dn(m));
+    const dl=daysLeft(m),low=isLow(m),pct=Math.min(100,Math.round(dl/30*100));
+    return `<div class="card"><b>${esc(dn(m))}</b>${flagged?' <span class="tag">interaction</span>':''}<br><small>${esc(desc(m))}<br>${m.times.map(t12).join(", ")}</small>
+    <div class="bar ${low?"lowbar":""}"><i style="width:${pct}%"></i></div>
+    <div>${m.stock} left &middot; <b style="color:${low?"var(--warn)":"inherit"}">${dl} day${dl===1?"":"s"}</b>${low?" &middot; refill now":""}</div>
+    <div class="row"><button class="b s" data-a="refill" data-id="${m.id}">Refill</button><button class="b o s" data-a="edit" data-id="${m.id}">Edit</button><button class="b o s" data-a="del" data-id="${m.id}">Delete</button></div></div>`;
+  }).join("");
+  h+='<div class="row"><button class="b" data-a="ics">Add to phone calendar</button>';
+  if(meds.some(isLow))h+='<button class="b r" data-a="wa">Send refill list on WhatsApp</button>';
+  return h+'</div>';
+}
+
+function vAdd(){
+  const f=form;
+  return scanHtml()+`<div class="card"><label>Medicine name</label><input id="fn" autocomplete="off" value="${esc(f.name)}" placeholder="Type a brand or generic name"><div id="sg"></div>
+  <label>Strength</label><input id="fst" list="strl" value="${esc(f.strength||"")}" placeholder="e.g. 500 mg"><datalist id="strl">${(f.opts||[]).map(o=>`<option value="${esc(o)}">`).join("")}</datalist>
+  <label>Note (optional)</label><input id="fo" value="${esc(f.note)}" placeholder="e.g. for sugar">
+  <label>Tablets per dose</label><input id="fd" type="number" min="0.5" step="0.5" value="${f.dose}">
+  <label>Dose times</label>${f.times.map((t,i)=>`<div class="tl"><input type="time" class="ft" value="${t}">${f.times.length>1?`<button class="b o s" data-a="rt" data-i="${i}">&times;</button>`:""}</div>`).join("")}
+  ${f.times.length<6?'<button class="b o s" data-a="at">+ Add time</button>':""}
+  <label>Take</label><select id="ff">${Object.keys(FOOD).map(k=>`<option value="${k}" ${f.food===k?"selected":""}>${{before:"Before food",after:"After food",with:"With food",any:"Any time"}[k]}</option>`).join("")}</select>
+  <label>Tablets in stock now</label><input id="fs" type="number" min="0" value="${f.stock}">
+  <label>Warn me when days left is</label><input id="fa" type="number" min="1" value="${f.alertDays}">
+  <div class="row"><button class="b" data-a="save">${editing?"Save changes":"Save medicine"}</button>${editing?'<button class="b o" data-a="cancel">Cancel</button>':""}</div></div>`;
+}
+
+function readForm(){
+  if(!$("fn"))return;
+  form={name:$("fn").value,strength:$("fst").value.trim(),opts:form.opts||[],note:$("fo").value,dose:parseFloat($("fd").value)||1,times:[...document.querySelectorAll(".ft")].map(i=>i.value),food:$("ff").value,stock:parseInt($("fs").value)||0,alertDays:parseInt($("fa").value)||5};
+}
+
+function render(){
+  $("date").textContent=new Date().toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"short"});
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.v===view));
+  $("v").innerHTML=view==="today"?vToday():view==="meds"?vMeds():view==="safe"?vSafe():vAdd();
+}
+
+function ics(){
+  const f=d=>d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+"T"+pad(d.getHours())+pad(d.getMinutes())+"00";
+  const z=new Date().toISOString().replace(/[-:]/g,"").split(".")[0]+"Z", e=s=>s.replace(/[,;\\]/g,"\\$&");
+  const L=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//MUST Medicine Reminder//EN"];
+  meds.forEach(m=>m.times.forEach(t=>{
+    const [h,mi]=t.split(":").map(Number),s=new Date();s.setHours(h,mi,0,0);
+    L.push("BEGIN:VEVENT","UID:"+m.id+t.replace(":","")+"@must-reminder","DTSTAMP:"+z,"DTSTART:"+f(s),"DTEND:"+f(new Date(s.getTime()+5*60000)),"RRULE:FREQ=DAILY",
+      "SUMMARY:"+e("Take "+dn(m)),"DESCRIPTION:"+e(desc(m)),"BEGIN:VALARM","ACTION:DISPLAY","DESCRIPTION:"+e("Take "+dn(m)),"TRIGGER:PT0M","END:VALARM","END:VEVENT");
+  }));
+  L.push("END:VCALENDAR");
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([L.join("\r\n")],{type:"text/calendar"}));
+  a.download="medicine-reminders.ics";document.body.appendChild(a);a.click();a.remove();
+}
+
+function popup(msg){
+  const d=document.createElement("div");d.className="pop";
+  d.innerHTML=`<span>${esc(msg)}</span><button>OK</button>`;
+  d.querySelector("button").onclick=()=>d.remove();
+  $("alert").appendChild(d);
+  try{navigator.vibrate&&navigator.vibrate([300,150,300])}catch(e){}
+}
+
+function tick(){
+  const now=new Date(),k=dk(now),nm=now.getHours()*60+now.getMinutes();
+  doses().forEach(d=>{
+    const diff=nm-mins(d.t);
+    if(!d.done&&diff>=0&&diff<10&&!notified[k+d.id]){
+      notified[k+d.id]=1;
+      const msg="Time to take "+dn(d.m)+" ("+d.m.dose+")";
+      popup(msg);
+      try{if("Notification" in window&&Notification.permission==="granted")new Notification("Medicine reminder",{body:msg})}catch(e){}
+    }
+  });
+  if(view==="today")render();
+}
+
+let SG=[], scan={items:[],text:"",busy:false,err:""};
+const iname=i=>i.br?i.br+" ("+i.e.g+")":i.e.g;
+function suggest(q){
+  q=q.trim().toLowerCase();if(q.length<2){SG=[];return""}
+  const r=[];
+  DB.forEach(e=>{
+    if(e.g.toLowerCase().includes(q))r.push({s:e.g.toLowerCase().startsWith(q)?0:1,l:e.g,sub:e.b.join(", "),e,br:""});
+    e.b.forEach(b=>{if(b.toLowerCase().includes(q))r.push({s:b.toLowerCase().startsWith(q)?0:1,l:b,sub:e.g,e,br:b})});
+  });
+  SG=r.sort((a,b)=>a.s-b.s).slice(0,8);
+  return SG.map((x,i)=>`<button type="button" data-a="pick" data-i="${i}"><b>${esc(x.l)}</b><br><small>${esc(x.sub||"generic")}</small></button>`).join("");
+}
+function scanHtml(){
+  let h='<div class="card"><b>Scan a prescription</b><div class="muted">Take a clear photo of a printed or typed prescription. The app reads it on your phone and fills in the medicines for you to check.</div>';
+  if(scan.busy)return h+'<div class="banner hint" id="scanstat" style="margin-top:10px">Starting...</div></div>';
+  h+='<div class="row"><label class="fl" for="fileCam">Take photo</label><label class="fl o" for="fileGal">Choose from gallery</label></div>';
+  if(scan.err)h+=`<div class="banner low" style="margin-top:10px">${esc(scan.err)}</div>`;
+  if(scan.items.length){
+    h+=`<h2>Found ${scan.items.length} medicine${scan.items.length>1?"s":""}</h2><div class="muted">Untick any that are wrong. You can edit each one later in Medicines.</div>`;
+    h+=scan.items.map((it,i)=>`<label class="scn"><input type="checkbox" data-a="ck" data-i="${i}" ${it.on?"checked":""}><span><b>${esc(iname(it))}${it.strength?" "+esc(it.strength):""}</b><br><small>${it.dose} per dose &middot; ${it.times.map(t12).join(", ")} &middot; ${FOOD[it.food]||"any time"} &middot; ${it.days?it.days+" days":"no duration"}${it.guess?" &middot; <b style='color:var(--warn)'>schedule not found, check it</b>":""}</small></span></label>`).join("");
+    h+='<div class="row"><button class="b" data-a="addsel">Add selected</button><button class="b o" data-a="discard">Discard</button></div>';
+  }else if(scan.text)h+='<div class="banner low" style="margin-top:10px">No known medicines were recognised. Handwriting is often unreadable for the app. Try a sharper photo or add manually below.</div>';
+  if(scan.text)h+=`<details style="margin-top:8px"><summary class="muted">Text the app read</summary><pre style="white-space:pre-wrap;font-size:12px">${esc(scan.text)}</pre></details>`;
+  return h+'</div>';
+}
+function loadOCR(){return window.Tesseract?Promise.resolve():new Promise((ok,no)=>{const s=document.createElement("script");s.src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";s.onload=ok;s.onerror=()=>no(new Error("offline"));document.head.appendChild(s)})}
+function prep(file){return new Promise(ok=>{const i=new Image();i.onload=()=>{
+  const k=Math.min(1,1800/Math.max(i.width,i.height)),c=document.createElement("canvas");c.width=i.width*k;c.height=i.height*k;
+  const x=c.getContext("2d");x.drawImage(i,0,0,c.width,c.height);const d=x.getImageData(0,0,c.width,c.height),p=d.data;
+  for(let j=0;j<p.length;j+=4){let g=.299*p[j]+.587*p[j+1]+.114*p[j+2];g=Math.max(0,Math.min(255,(g-128)*1.5+128));p[j]=p[j+1]=p[j+2]=g}
+  x.putImageData(d,0,0);ok(c)};i.src=URL.createObjectURL(file)})}
+const setStat=t=>{const e=$("scanstat");if(e)e.textContent=t};
+async function doScan(file){
+  scan={items:[],text:"",busy:true,err:""};render();
+  try{
+    setStat("Loading the reader (needs internet the first time)...");await loadOCR();
+    const c=await prep(file);
+    const r=await Tesseract.recognize(c,"eng",{logger:m=>{if(m.status==="recognizing text")setStat("Reading prescription... "+Math.round(m.progress*100)+"%")}});
+    scan.text=r.data.text;scan.items=extract(scan.text);
+  }catch(e){scan.err="Could not read the image. Check your internet connection and try again."}
+  scan.busy=false;render();
+}
+document.addEventListener("input",e=>{if(e.target.id==="fn"&&$("sg"))$("sg").innerHTML=suggest(e.target.value)});
+["fileCam","fileGal"].forEach(id=>{$(id).onchange=e=>{const f=e.target.files[0];e.target.value="";if(f){readForm();doScan(f)}}});
+window.addEventListener("error",e=>{const d=document.createElement("div");d.style.cssText="background:#c2410c;color:#fff;padding:8px 12px;font-size:13px";d.textContent="Error: "+e.message;document.body.prepend(d)});
+document.addEventListener("click",e=>{
+  const n=e.target.closest("nav button");
+  if(n){readForm();view=n.dataset.v;if(view!=="add"){editing=null}render();return}
+  const b=e.target.closest("[data-a]");if(!b)return;
+  const a=b.dataset.a,id=b.dataset.id,m=meds.find(x=>x.id===id),k=dk(new Date());
+  if(a==="take"){
+    const[mid]=id.split("|"),mm=meds.find(x=>x.id===mid);log[k]=log[k]||{};
+    if(log[k][id]){delete log[k][id];mm.stock+=mm.dose}else{log[k][id]=1;mm.stock=Math.max(0,mm.stock-mm.dose)}
+    save();render();
+  }else if(a==="notif"){Notification.requestPermission().then(render)}
+  else if(a==="refill"){const q=parseFloat(prompt("How many tablets did you buy?"));if(q>0){m.stock+=q;save();render()}}
+  else if(a==="edit"){form={...m,times:[...m.times],opts:[],strength:m.strength||""};editing=id;view="add";render()}
+  else if(a==="del"){if(confirm("Delete "+dn(m)+"?")){meds=meds.filter(x=>x.id!==id);save();render()}}
+  else if(a==="ics"){ics()}
+  else if(a==="wa"){const t="Refill needed:\n"+meds.filter(isLow).map(x=>"- "+dn(x)+" ("+daysLeft(x)+" days left)").join("\n");window.open("https://wa.me/?text="+encodeURIComponent(t))}
+  else if(a==="cam"||a==="gal"){const f=$("file");a==="cam"?f.setAttribute("capture","environment"):f.removeAttribute("capture");f.click()}
+  else if(a==="pick"){readForm();const x=SG[+b.dataset.i];form.name=x.br?x.br+" ("+x.e.g+")":x.e.g;form.opts=x.e.s;form.strength="";render()}
+  else if(a==="ck"){scan.items[+b.dataset.i].on=b.checked}
+  else if(a==="discard"){scan={items:[],text:"",busy:false,err:""};render()}
+  else if(a==="addsel"){
+    const nm=scan.items.filter(i=>i.on).map(i=>({id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),name:iname(i),strength:i.strength,note:"",dose:i.dose,times:i.times,food:i.food,stock:i.days?Math.round(i.days*i.dose*i.times.length):30,alertDays:i.days&&i.days<5?1:5}));
+    if(!okToAdd(nm))return;
+    meds.push(...nm);
+    scan={items:[],text:"",busy:false,err:""};save();view="meds";render();
+  }
+  else if(a==="gosafe"){view="safe";render()}
+  else if(a==="at"){readForm();form.times.push("12:00");render()}
+  else if(a==="rt"){readForm();form.times.splice(+b.dataset.i,1);render()}
+  else if(a==="cancel"){editing=null;form=blank();view="meds";render()}
+  else if(a==="save"){
+    readForm();
+    if(!form.name.trim())return alert("Enter the medicine name.");
+    if(form.times.some(t=>!t))return alert("Set every dose time.");
+    form.times=[...new Set(form.times)].sort();
+    const rec={...form};delete rec.opts;
+    if(editing){const i=meds.findIndex(x=>x.id===editing),nr={...rec,id:editing};if(!okToAdd([nr],meds.filter(x=>x.id!==editing)))return;meds[i]=nr}
+    else{const nr={...rec,id:Date.now().toString(36)};if(!okToAdd([nr]))return;meds.push(nr)}
+    editing=null;form=blank();save();view="meds";render();
+  }
+});
+render();tick();setInterval(tick,20000);
+</script>
+</body>
+</html>
